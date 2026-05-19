@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "ingest": "tsx src/rag.ts",
+    "build": "tsc",
+    "chroma": "docker start chromadb || docker run -d --name chromadb -p 8000:8000 chromadb/chroma:latest"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -14,6 +17,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
+    "@chroma-core/default-embed": "^0.1.9",
     "better-sqlite3": "^12.10.0",
     "chromadb": "^3.4.3",
     "uuid": "^14.0.0"

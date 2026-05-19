@@ -104,7 +104,7 @@ async function addToKnowledgeHandler(args: Record<string, unknown>): Promise<str
 
 async function knowledgeStatsHandler(_args: Record<string, unknown>): Promise<string> {
   const { getStats } = await import("./rag.js");
-  const stats = getStats();
+  const stats = await getStats();
   return JSON.stringify(stats, null, 2);
 }
 

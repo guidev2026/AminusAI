@@ -45,41 +45,74 @@ npm run dev -- --load <conversation-id>
 
 ---
 
-## 🧠 RAG — Retrieval-Augmented Generation
+## 🧠 RAG — Retrieval-Augmented Generation com ChromaDB
 
-O agente pode armazenar documentos em uma base de conhecimento e buscá-los por **similaridade semântica** — ele encontra trechos relevantes mesmo sem correspondência exata de palavras.
+O agente usa **ChromaDB** (banco vetorial open-source) para armazenar documentos e buscá-los por **similaridade semântica**. Ele encontra trechos relevantes mesmo sem correspondência exata de palavras.
+
+### Pré-requisitos do RAG
+
+Instale o ChromaDB **fora do projeto** (CLI global):
+
+```bash
+pip install chromadb
+# ou: npm install -g chromadb
+```
+
+Depois inicie o servidor:
+
+```bash
+chroma run --path ./data/chroma --port 8000
+```
 
 ### Como funciona
 
 ```
-Documento → chunking → embeddings → armazenamento
-Pergunta → embedding → busca por similaridade cosseno → contexto injetado no prompt
+Documento → chunking (256 palavras) → embedding (ONNX local) → ChromaDB
+Pergunta  → embedding automático → busca por distância L2 → contexto injetado no prompt
 ```
 
-### Ferramentas do RAG
+### Comandos no chat
 
-| Função | Descrição |
-|--------|-----------|
-| `search_knowledge_base` | Busca semântica nos documentos armazenados |
-| `add_to_knowledge` | Adiciona documento à base (chunka + embeda) |
-| `knowledge_stats` | Estatísticas da coleção |
+| Comando | Descrição |
+|---------|-----------|
+| `/rag` | Ativa/desativa o RAG |
+| `/add Título\nconteúdo` | Adiciona documento à base |
+| `/stats` | Estatísticas da base de conhecimento |
 
 ### Exemplo de uso
 
 ```
-Você: Pode adicionar um documento sobre SOLID principles?
-Agente: Claro! Me passe o conteúdo.
+Você: /rag
+✅ RAG ativado!
 
-Você: [cola o texto sobre SOLID]
-Agente: ✅ Documento "SOLID Principles" adicionado (8 chunks indexados).
+Você: /add SOLID Principles
+O Princípio da Responsabilidade Única diz que uma classe deve ter...
+✅ Documento adicionado (3 chunks).
 
-Você: O que é o Princípio da Responsabilidade Única?
+Você: O que é SRP?
 Agente: [resposta baseada no documento armazenado - RAG em ação!]
 ```
 
-> ⚙️ A implementação do RAG é **didática**: a similaridade cosseno é calculada manualmente, o chunking é explícito e a persistência usa JSON. Perfeito para aprender como bancos vetoriais funcionam antes de migrar para ChromaDB.
+### CLI de ingestão
 
-Veja detalhes em [`README_RAG.md`](./README_RAG.md).
+```bash
+# Adicionar arquivo
+npx tsx src/rag.ts --add arquivo.txt
+
+# Adicionar com Ollama (alternativa)
+npx tsx src/rag.ts --add arquivo.txt --use-ollama
+
+# Estatísticas
+npx tsx src/rag.ts --stats
+
+# Listar documentos
+npx tsx src/rag.ts --list
+
+# Limpar base
+npx tsx src/rag.ts --clear
+```
+
+Veja detalhes técnicos e explicação didática em [`README_RAG.md`](./README_RAG.md).
 
 ---
 
@@ -122,7 +155,7 @@ solus-agent/
 │   └── index.ts      → Terminal interativo (CLI)
 ├── data/
 │   ├── solus.db          → Banco SQLite (conversas)
-│   └── rag_collection.json → Coleção vetorial (chunks + embeddings)
+│   └── chroma/           → Dados persistentes do ChromaDB
 ├── README.md              → Este arquivo
 ├── README_FUNCTION_CALLING.md → Tutorial de function calling
 ├── README_RAG.md          → Tutorial detalhado do RAG
@@ -162,7 +195,6 @@ solus-agent/
 
 ## 📚 Próximos passos
 
-- Migrar o RAG JSON para **ChromaDB** (banco vetorial real)
 - Adicionar **streaming** (resposta palavra por palavra)
 - Criar interface web
 - Suporte a múltiplos documentos (PDF, Markdown, texto)

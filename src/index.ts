@@ -40,6 +40,9 @@ console.log(`
 ║    /list     - listar conversas salvas   ║
 ║    /load     - carregar outra conversa   ║
 ║    /delete   - apagar uma conversa       ║
+║    /rag      - ativar/desativar RAG      ║
+║    /add      - adicionar à base de conh. ║
+║    /stats    - estatísticas do RAG       ║
 ╚══════════════════════════════════════════╝
 `);
 
@@ -135,9 +138,72 @@ async function chatLoop(): Promise<void> {
     return;
   }
 
+  if (normalized === "/rag") {
+    const novoEstado = !agent.isRagAtivo();
+    agent.setRagAtivo(novoEstado);
+    console.log(`\n${novoEstado ? "✅" : "❌"} RAG ${novoEstado ? "ativado" : "desativado"}!`);
+    console.log(`  ${novoEstado ? "Agora usarei a base de conhecimento para enriquecer respostas." : "Responderei apenas com meu conhecimento interno."}`);
+    await chatLoop();
+    return;
+  }
+
+  if (normalized === "/stats") {
+    const { getStats } = await import("./rag.js");
+    try {
+      const stats = await getStats();
+      console.log(`\n📊 Estatísticas da Base de Conhecimento:`);
+      console.log(`  Total de chunks indexados: ${stats.totalChunks}`);
+      console.log(`  Documentos:`);
+      for (const [titulo, chunks] of Object.entries(stats.documentos)) {
+        console.log(`    • ${titulo}: ${chunks} chunks`);
+      }
+    } catch (err) {
+      console.log(`\n❌ Erro ao obter estatísticas: ${err}`);
+      console.log("  Certifique-se de que o ChromaDB está rodando:");
+      console.log("  chroma run --path ./data/chroma --port 8000");
+    }
+    await chatLoop();
+    return;
+  }
+
+  if (normalized.startsWith("/add ") || normalized.startsWith("/add\n")) {
+    const resto = input.trim().slice(4).trim();
+    const primeiraQuebra = resto.indexOf("\n");
+    if (primeiraQuebra === -1) {
+      console.log(`\n❌ Formato: /add Título do documento`);
+      console.log("   Conteúdo do documento aqui...");
+      console.log("   (coloque o título na primeira linha e o conteúdo nas linhas seguintes)");
+      await chatLoop();
+      return;
+    }
+    const titulo = resto.substring(0, primeiraQuebra).trim();
+    const conteudo = resto.substring(primeiraQuebra + 1).trim();
+
+    if (!titulo || !conteudo) {
+      console.log(`\n❌ Título e conteúdo são obrigatórios.`);
+      await chatLoop();
+      return;
+    }
+
+    const { addDocument } = await import("./rag.js");
+    try {
+      console.log(`\n📚 Adicionando "${titulo}" à base de conhecimento...`);
+      const chunks = await addDocument(titulo, conteudo);
+      console.log(`✅ Documento adicionado (${chunks} chunks).`);
+      console.log("  Agora você pode perguntar sobre o conteúdo!");
+    } catch (err) {
+      console.log(`\n❌ Erro ao adicionar: ${err}`);
+      console.log("  Certifique-se de que o ChromaDB está rodando:");
+      console.log("  chroma run --path ./data/chroma --port 8000");
+    }
+    await chatLoop();
+    return;
+  }
+
   try {
     console.log("\n🤖 Agente: ");
-    const resposta = await agent.process(input);
+    const usarRag = agent.isRagAtivo();
+    const resposta = await agent.process(input, usarRag);
     console.log(resposta);
     console.log(`\n(💡 ${agent.getHistory().length} mensagens | /reset limpa | /save pega o ID)`);
   } catch (error) {
