@@ -4,7 +4,7 @@ import { stdin as input, stdout as output } from "node:process";
 
 const rl = readline.createInterface({ input, output });
 
-const MODEL = "qwen3.5:7b-instruct-q3_K_M";
+const MODEL = "qwen2.5:7b-instruct-q3_K_M";
 const SYSTEM_PROMPT = `
 Você é um assistente amigável e prestativo chamado Solus.
 Regras:
@@ -50,7 +50,7 @@ async function chatLoop(): Promise<void> {
     console.log("\n📝 Histórico da conversa:");
     for (const msg of history) {
       const role = msg.role.padEnd(9);
-      const preview = msg.content.substring(0, 100) + (msg.content.length > 100 ? "..." : "");
+      const preview = (msg.content ?? "").substring(0, 100) + ((msg.content?.length ?? 0) > 100 ? "..." : "");
       console.log(`  [${role}] ${preview}`);
     }
     await chatLoop();

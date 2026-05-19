@@ -246,6 +246,23 @@ E no final, `chatLoop()` chama ela mesma de novo — criando um loop infinito at
 
 ---
 
+## Function Calling
+
+O Solus Agent agora suporta **function calling** — o modelo pode decidir chamar funções reais do sistema para responder com precisão.
+
+Quatro ferramentas estão disponíveis:
+
+| Função | Descrição |
+|--------|-----------|
+| `get_current_time` | Retorna data e hora atual |
+| `calculate` | Avalia expressões matemáticas |
+| `get_word_count` | Conta palavras e caracteres |
+| `convert_currency` | Converte entre moedas (BRL, USD, EUR, ARS) |
+
+Veja o arquivo [`README_FUNCTION_CALLING.md`](./README_FUNCTION_CALLING.md) para detalhes completos.
+
+---
+
 ## Resumo: o que é um "agente"?
 
 ```
