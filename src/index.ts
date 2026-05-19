@@ -1,4 +1,9 @@
 import { Agent } from "./agent.js";
+import {
+  listarConversas,
+  deletarConversa,
+  fecharBanco,
+} from "./memory.js";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
@@ -14,17 +19,27 @@ Regras:
 - Mantenha um tom amigável e encorajador
 `;
 
-const agent = new Agent(MODEL, SYSTEM_PROMPT);
+const args = process.argv.slice(2);
+const loadIndex = args.indexOf("--load");
+const conversationIdArg =
+  loadIndex !== -1 && args[loadIndex + 1] ? args[loadIndex + 1] : undefined;
+
+const agent = new Agent(MODEL, SYSTEM_PROMPT, conversationIdArg);
 
 console.log(`
 ╔══════════════════════════════════════════╗
-║        🤖 Agente Solus v1.0             ║
+║        🤖 Agente Solus v2.0             ║
 ║                                          ║
 ║  Modelo: ${MODEL.padEnd(37)}║
+║  Conversa: ${(agent.getConversationId().substring(0, 8) + "...").padEnd(34)}║
 ║  Comandos:                               ║
 ║    /sair     - encerrar                  ║
 ║    /reset    - limpar conversa           ║
 ║    /history  - ver histórico             ║
+║    /save     - mostrar ID da conversa    ║
+║    /list     - listar conversas salvas   ║
+║    /load     - carregar outra conversa   ║
+║    /delete   - apagar uma conversa       ║
 ╚══════════════════════════════════════════╝
 `);
 
@@ -33,6 +48,7 @@ async function chatLoop(): Promise<void> {
   const normalized = input.trim().toLowerCase();
 
   if (normalized === "/sair" || normalized === "/exit" || normalized === "/quit") {
+    fecharBanco();
     console.log("\nAté mais! 👋");
     rl.close();
     return;
@@ -57,11 +73,73 @@ async function chatLoop(): Promise<void> {
     return;
   }
 
+  if (normalized === "/save") {
+    console.log(`\n💾 ID da conversa atual: ${agent.getConversationId()}`);
+    console.log("  Use: npm run dev -- --load <id>");
+    await chatLoop();
+    return;
+  }
+
+  if (normalized === "/list") {
+    const conversas = listarConversas();
+    if (conversas.length === 0) {
+      console.log("\n📭 Nenhuma conversa salva ainda.");
+    } else {
+      console.log("\n📋 Conversas salvas:");
+      for (const c of conversas) {
+        const prefixo = c.id === agent.getConversationId() ? "▶ " : "  ";
+        console.log(
+          `${prefixo}${c.id.substring(0, 8)}... | ${c.created_at} | ${c.total} msgs | "${c.preview}"`
+        );
+      }
+      console.log("\n  Para carregar uma: npm run dev -- --load <id>");
+    }
+    await chatLoop();
+    return;
+  }
+
+  if (normalized.startsWith("/load ")) {
+    const termo = input.trim().slice(6).trim();
+    const conversas = listarConversas();
+
+    const encontrada = conversas.find(
+      (c) => c.id === termo || c.id.startsWith(termo)
+    );
+
+    if (encontrada) {
+      console.log(`\n🔄 Para carregar "${encontrada.id.substring(0, 8)}...", rode:`);
+      console.log(`  npm run dev -- --load ${encontrada.id}`);
+      console.log(`  (ou feche este terminal e execute o comando acima)`);
+    } else {
+      console.log(`\n❌ Nenhuma conversa encontrada com "${termo}".`);
+      console.log("  Use /list para ver as conversas disponíveis.");
+    }
+    await chatLoop();
+    return;
+  }
+
+  if (normalized.startsWith("/delete ")) {
+    const termo = input.trim().slice(8).trim();
+    const conversas = listarConversas();
+    const encontrada = conversas.find(
+      (c) => c.id === termo || c.id.startsWith(termo)
+    );
+
+    if (encontrada) {
+      deletarConversa(encontrada.id);
+      console.log(`\n🗑️ Conversa "${encontrada.id.substring(0, 8)}..." deletada.`);
+    } else {
+      console.log(`\n❌ Nenhuma conversa encontrada com "${termo}".`);
+    }
+    await chatLoop();
+    return;
+  }
+
   try {
     console.log("\n🤖 Agente: ");
     const resposta = await agent.process(input);
     console.log(resposta);
-    console.log(`\n(💡 ${agent.getHistory().length} mensagens no histórico | /reset para limpar)`);
+    console.log(`\n(💡 ${agent.getHistory().length} mensagens | /reset limpa | /save pega o ID)`);
   } catch (error) {
     console.error("\n❌ Erro:", error);
     if (error instanceof TypeError && error.message.includes("fetch")) {

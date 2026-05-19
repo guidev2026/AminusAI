@@ -247,7 +247,7 @@ Pronto. Na próxima execução o modelo já poderá usar sua nova ferramenta.
 
 ## ⚠️ Limitações conhecidas
 
-- **Depende do modelo suportar tools:** modelos mais antigos ou muito pequenos podem ignorar as ferramentas. `qwen2.5:3b` e superiores funcionam bem.
+- **Depende do modelo suportar tools:** modelos mais antigos ou muito pequenos podem ignorar as ferramentas. `qwen2.5:7b` e superiores funcionam bem.
 - **Taxas de câmbio fixas:** o `convert_currency` usa taxas estáticas de exemplo. Para taxas reais, seria necessário integrar uma API externa.
 - **Sem streaming com tools:** o function calling não usa streaming (`stream: false`) para simplificar o loop. A resposta final (após as tools) é exibida normalmente.
 

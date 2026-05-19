@@ -1,4 +1,10 @@
 import { criarFerramentas, processarChamadaDeFuncao } from "./tools.js";
+import {
+  novaConversaId,
+  salvarMensagem,
+  carregarConversa,
+} from "./memory.js";
+import { augmentarPrompt } from "./rag.js";
 
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
@@ -12,18 +18,40 @@ export interface Message {
 export class Agent {
   private readonly model: string;
   private readonly messages: Message[];
+  private readonly conversationId: string;
+  private readonly systemPrompt: string;
+  private ragAtivo: boolean = false;
 
   constructor(
     model: string,
-    systemPrompt: string = "Você é um assistente amigável e prestativo."
+    systemPrompt: string = "Você é um assistente amigável e prestativo.",
+    conversationId?: string
   ) {
     this.model = model;
-    this.messages = [{ role: "system", content: systemPrompt }];
+    this.systemPrompt = systemPrompt;
+    this.conversationId = conversationId ?? novaConversaId();
+
+    const historico = carregarConversa(this.conversationId);
+    if (historico.length > 0) {
+      this.messages = historico;
+    } else {
+      this.messages = [{ role: "system", content: systemPrompt }];
+      salvarMensagem(this.messages[0], this.conversationId);
+    }
   }
 
-  /**
-   * Envia mensagens + tools para o Ollama e retorna a resposta completa.
-   */
+  getConversationId(): string {
+    return this.conversationId;
+  }
+
+  isRagAtivo(): boolean {
+    return this.ragAtivo;
+  }
+
+  setRagAtivo(ativo: boolean): void {
+    this.ragAtivo = ativo;
+  }
+
   private async callOllama(
     messages: Message[],
     tools?: unknown[]
@@ -52,14 +80,29 @@ export class Agent {
     return data.message;
   }
 
-  async process(userInput: string): Promise<string> {
-    this.messages.push({ role: "user", content: userInput });
+  async process(userInput: string, usarRag: boolean = false): Promise<string> {
+    const userMsg: Message = { role: "user", content: userInput };
+    this.messages.push(userMsg);
+    salvarMensagem(userMsg, this.conversationId);
 
     try {
-      const tools = criarFerramentas();
-      let resposta = await this.callOllama(this.messages, tools);
+      let mensagensParaEnvio = this.messages;
+      let systemInjetado = false;
 
-      // Loop de function calling — no máximo 5 iterações por segurança
+      if (usarRag || this.ragAtivo) {
+        const systemAugmentado = await augmentarPrompt(userInput, this.systemPrompt);
+        if (systemAugmentado !== this.systemPrompt) {
+          mensagensParaEnvio = [
+            { role: "system", content: systemAugmentado },
+            ...this.messages.slice(1),
+          ];
+          systemInjetado = true;
+        }
+      }
+
+      const tools = criarFerramentas();
+      let resposta = await this.callOllama(mensagensParaEnvio, tools);
+
       let iteracoes = 0;
       const MAX_ITERACOES = 5;
 
@@ -68,37 +111,45 @@ export class Agent {
         resposta.tool_calls.length > 0 &&
         iteracoes < MAX_ITERACOES
       ) {
-        // Adiciona a resposta do assistente (com os tool_calls) ao histórico
-        this.messages.push({
+        const assistMsg: Message = {
           role: "assistant",
           content: resposta.content,
           tool_calls: resposta.tool_calls,
-        });
+        };
+        this.messages.push(assistMsg);
+        salvarMensagem(assistMsg, this.conversationId);
 
-        // Executa cada tool_call e adiciona os resultados
         for (const tc of resposta.tool_calls) {
-          const resultado = processarChamadaDeFuncao(
+          const resultado = await processarChamadaDeFuncao(
             tc.function.name,
             tc.function.arguments
           );
-          this.messages.push({
+          const toolMsg: Message = {
             role: "tool",
             content: resultado,
-            tool_call_id: tc.function.name, // usado como identificador único
-          });
+            tool_call_id: tc.function.name,
+          };
+          this.messages.push(toolMsg);
+          salvarMensagem(toolMsg, this.conversationId);
         }
 
-        // Chama o modelo novamente com os resultados das tools
-        resposta = await this.callOllama(this.messages, tools);
+        mensagensParaEnvio = systemInjetado
+          ? [
+              { role: "system", content: (await augmentarPrompt(userInput, this.systemPrompt)) },
+              ...this.messages.slice(1),
+            ]
+          : this.messages;
+
+        resposta = await this.callOllama(mensagensParaEnvio, tools);
         iteracoes++;
       }
 
-      // Adiciona a resposta final do assistente ao histórico
       const textoFinal = resposta.content || "(sem resposta)";
-      this.messages.push({ role: "assistant", content: textoFinal });
+      const finalMsg: Message = { role: "assistant", content: textoFinal };
+      this.messages.push(finalMsg);
+      salvarMensagem(finalMsg, this.conversationId);
       return textoFinal;
     } catch (error) {
-      // Em caso de erro, remove a mensagem do usuário
       this.messages.pop();
       throw error;
     }
@@ -109,8 +160,8 @@ export class Agent {
   }
 
   reset(): void {
-    const systemPrompt = this.messages[0];
     this.messages.length = 0;
-    this.messages.push(systemPrompt);
+    this.messages.push({ role: "system", content: this.systemPrompt });
+    salvarMensagem(this.messages[0], this.conversationId);
   }
 }

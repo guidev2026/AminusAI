@@ -1,14 +1,3 @@
-/**
- * Definição das ferramentas (tools) para function calling.
- *
- * Cada ferramenta tem:
- *  - Definição no formato OpenAI/Ollama (name, description, parameters)
- *  - Função handler que executa a lógica real
- */
-
-// ---------------------------------------------------------------------------
-// 1. get_current_time — retorna data e hora atual
-// ---------------------------------------------------------------------------
 function getCurrentTimeHandler(_args: Record<string, unknown>): string {
   return new Date().toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -17,21 +6,16 @@ function getCurrentTimeHandler(_args: Record<string, unknown>): string {
   });
 }
 
-// ---------------------------------------------------------------------------
-// 2. calculate — avalia expressão matemática simples
-// ---------------------------------------------------------------------------
 function calculateHandler(args: Record<string, unknown>): string {
   const expression = String(args.expression ?? "").trim();
   if (!expression) return "Nenhuma expressão fornecida.";
 
-  // Validação de segurança: só permite números, operadores, parênteses, espaços e ponto
   const allowed = /^[\d+\-*/().%\s]+$/;
   if (!allowed.test(expression)) {
     return "Expressão inválida. Use apenas números e operadores (+, -, *, /, %, ()).";
   }
 
   try {
-    // eslint-disable-next-line no-eval
     const result = eval(expression);
     return `${expression} = ${result}`;
   } catch {
@@ -39,9 +23,6 @@ function calculateHandler(args: Record<string, unknown>): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. get_word_count — conta palavras e caracteres de um texto
-// ---------------------------------------------------------------------------
 function getWordCountHandler(args: Record<string, unknown>): string {
   const text = String(args.text ?? "");
   if (!text) return "Nenhum texto fornecido.";
@@ -53,14 +34,11 @@ function getWordCountHandler(args: Record<string, unknown>): string {
   return JSON.stringify({ palavras, caracteres, caracteresSemEspaco });
 }
 
-// ---------------------------------------------------------------------------
-// 4. convert_currency — conversão simples entre moedas (taxas fixas)
-// ---------------------------------------------------------------------------
 const TAXAS_CAMBIO: Record<string, number> = {
   BRL: 1,
-  USD: 0.19,  // 1 BRL ≈ 0.19 USD  (exemplo didático)
-  EUR: 0.17,  // 1 BRL ≈ 0.17 EUR
-  ARS: 172,   // 1 BRL ≈ 172 ARS
+  USD: 0.19,
+  EUR: 0.17,
+  ARS: 172,
 };
 
 function convertCurrencyHandler(args: Record<string, unknown>): string {
@@ -78,9 +56,57 @@ function convertCurrencyHandler(args: Record<string, unknown>): string {
   return `${valor.toFixed(2)} ${de} = ${convertido.toFixed(2)} ${para}`;
 }
 
-// ---------------------------------------------------------------------------
-// Catálogo de ferramentas
-// ---------------------------------------------------------------------------
+async function searchKnowledgeBaseHandler(args: Record<string, unknown>): Promise<string> {
+  const query = String(args.query ?? "").trim();
+  const topK = Number(args.top_k) || 3;
+
+  if (!query) return "Nenhuma consulta fornecida.";
+
+  try {
+    const { searchRelevant } = await import("./rag.js");
+    const resultados = await searchRelevant(query, topK);
+
+    if (resultados.length === 0) {
+      return "Nenhum resultado encontrado na base de conhecimento.";
+    }
+
+    return JSON.stringify(
+      resultados.map((r) => ({
+        fonte: r.title,
+        relevancia: `${(r.score * 100).toFixed(0)}%`,
+        conteudo: r.content.substring(0, 300) + (r.content.length > 300 ? "..." : ""),
+      })),
+      null,
+      2
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `Erro ao buscar na base de conhecimento: ${msg}. Certifique-se de que o modelo all-minilm está baixado (ollama pull all-minilm).`;
+  }
+}
+
+async function addToKnowledgeHandler(args: Record<string, unknown>): Promise<string> {
+  const title = String(args.title ?? "").trim();
+  const content = String(args.content ?? "").trim();
+
+  if (!title) return "Título não fornecido.";
+  if (!content) return "Conteúdo não fornecido.";
+
+  try {
+    const { addDocument } = await import("./rag.js");
+    const chunks = await addDocument(title, content);
+    return `✅ Documento "${title}" adicionado à base de conhecimento (${chunks} chunks indexados).`;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `Erro ao adicionar documento: ${msg}. Certifique-se de que o modelo all-minilm está baixado (ollama pull all-minilm).`;
+  }
+}
+
+async function knowledgeStatsHandler(_args: Record<string, unknown>): Promise<string> {
+  const { getStats } = await import("./rag.js");
+  const stats = getStats();
+  return JSON.stringify(stats, null, 2);
+}
 
 export interface ToolDefinition {
   type: "function";
@@ -92,18 +118,19 @@ export interface ToolDefinition {
 }
 
 export interface ToolHandler {
-  (args: Record<string, unknown>): string;
+  (args: Record<string, unknown>): string | Promise<string>;
 }
 
-// Mapa nome → handler
 const handlers: Record<string, ToolHandler> = {
   get_current_time: getCurrentTimeHandler,
   calculate: calculateHandler,
   get_word_count: getWordCountHandler,
   convert_currency: convertCurrencyHandler,
+  search_knowledge_base: searchKnowledgeBaseHandler,
+  add_to_knowledge: addToKnowledgeHandler,
+  knowledge_stats: knowledgeStatsHandler,
 };
 
-// Lista de definições (enviada para o modelo)
 export function criarFerramentas(): ToolDefinition[] {
   return [
     {
@@ -178,18 +205,70 @@ export function criarFerramentas(): ToolDefinition[] {
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "search_knowledge_base",
+        description:
+          "Busca documentos na base de conhecimento usando similaridade semântica (embeddings). Ideal para perguntas que exigem conhecimento específico que foi armazenado.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "A pergunta ou termo de busca em linguagem natural.",
+            },
+            top_k: {
+              type: "number",
+              description: "Quantos resultados retornar (padrão 3, máximo 10).",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "add_to_knowledge",
+        description:
+          "Adiciona um documento à base de conhecimento do agente. O texto será chunkado, embedado e indexado para buscas futuras via RAG.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Título descritivo do documento.",
+            },
+            content: {
+              type: "string",
+              description: "Conteúdo completo do documento a ser indexado.",
+            },
+          },
+          required: ["title", "content"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "knowledge_stats",
+        description:
+          "Retorna estatísticas da base de conhecimento: total de chunks e documentos indexados.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
   ];
 }
 
-/**
- * Processa uma chamada de função vinda do modelo.
- * @param name  Nome da função
- * @param args  Argumentos em JSON string
- */
-export function processarChamadaDeFuncao(
+export async function processarChamadaDeFuncao(
   name: string,
   args: string
-): string {
+): Promise<string> {
   const handler = handlers[name];
   if (!handler) {
     return `Função "${name}" não encontrada.`;
@@ -203,7 +282,7 @@ export function processarChamadaDeFuncao(
   }
 
   try {
-    return handler(parsedArgs);
+    return await handler(parsedArgs);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return `Erro ao executar "${name}": ${msg}`;
